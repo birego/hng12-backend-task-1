@@ -1,6 +1,7 @@
 import express from "express";
 import axios from "axios";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,6 +9,14 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Rate limiter to prevent abuse (max 100 requests per 15 min)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, 
+  message: { error: true, message: "Too many requests, please try again later." },
+});
+app.use(limiter);
 
 // Helper functions
 const isPrime = (num) => {
@@ -45,37 +54,42 @@ const getDigitSum = (num) => {
 
 // API Endpoint
 app.get("/api/classify-number", async (req, res) => {
-  const { number } = req.query;
+  let { number } = req.query;
 
-  // Input validation
-  if (isNaN(number)) {
+  // Strict input validation
+  if (!/^-?\d+$/.test(number)) {
     return res.status(400).json({ number, error: true });
   }
 
-  const num = parseInt(number, 10);
+  number = Number(number.trim());
+
+  // Prevent extremely large numbers
+  if (number > 10 ** 12) {
+    return res.status(400).json({ number, error: true, message: "Number too large to process." });
+  }
 
   // Fetch fun fact from Numbers API
-  let funFact = "";
+  let funFact = "No fun fact available.";
   try {
-    const response = await axios.get(`http://numbersapi.com/${num}/math`);
-    funFact = response.data;
+    const response = await axios.get(`http://numbersapi.com/${number}/math`);
+    funFact = response.data.trim();
   } catch (error) {
-    funFact = "No fun fact available for this number.";
+    console.error("Error fetching fun fact:", error.message);
   }
 
   // Determine properties
   const properties = [];
-  if (isArmstrong(num)) properties.push("armstrong");
-  if (num % 2 === 0) properties.push("even");
+  if (isArmstrong(number)) properties.push("armstrong");
+  if (number % 2 === 0) properties.push("even");
   else properties.push("odd");
 
   // Prepare response
   const response = {
-    number: num,
-    is_prime: isPrime(num),
-    is_perfect: isPerfect(num),
+    number,
+    is_prime: isPrime(number),
+    is_perfect: isPerfect(number),
     properties,
-    digit_sum: getDigitSum(num),
+    digit_sum: getDigitSum(number),
     fun_fact: funFact,
   };
 
